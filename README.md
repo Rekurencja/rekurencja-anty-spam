@@ -37,4 +37,4 @@ A.... jak używać?
 - Generowanie logów wewnątrz panelu admina
 - Dodawanie słów przez panel admina
 
-![Oh Honey WordPress Tool]([https://ibb.co/QHL6MVm](https://i.ibb.co/946qW0Y/d35dba84-039f-4512-8a91-6e109ebc26fa-1.webp)https://i.ibb.co/946qW0Y/d35dba84-039f-4512-8a91-6e109ebc26fa-1.webp)
+![Oh Honey WordPress Tool](https://i.ibb.co/946qW0Y/d35dba84-039f-4512-8a91-6e109ebc26fa-1.webp)
