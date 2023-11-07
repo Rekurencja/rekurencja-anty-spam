@@ -22,4 +22,19 @@ require_once 'lib/packages/oh-honey/init.php';
 
 ## I jazdunia, boty do pieca.
 
+A.... jak używać? 
+## Funkcjonalności:
+- Limit słów pisanych capslockiem (więcej niż 3 = SPAM)
+- Czarna lista słów w pliku JSON
+- Cross-Site Request Forgery (CSRF) Token 
+- Honey pots
+- User Agent
 
+## Pomysły:
+- Blokada ruchu z określonego adresu IP lub kraju.
+- Captcha / RECaptcha
+- Panel admina (CPT)
+- Generowanie logów wewnątrz panelu admina
+- Dodawanie słów przez panel admina
+
+![Oh Honey WordPress Tool](https://ibb.co/QHL6MVm)
