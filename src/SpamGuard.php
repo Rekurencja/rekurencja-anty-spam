@@ -64,26 +64,34 @@ class SpamGuard
 		add_action('wp_ajax_regenerate_token', [$this, 'ajaxRegenerateToken']);
 		add_action('wp_ajax_nopriv_regenerate_token', [$this, 'ajaxRegenerateToken']);
 		add_action('wp_enqueue_scripts', [$this, 'enqueueScripts']);
+		add_action('wp_enqueue_scripts', [$this, 'enqueueStyles']);
 		add_filter('wpcf7_form_hidden_fields', [$this, 'addTokenHiddenField']);
 		add_filter('wpcf7_spam', [$this, 'validateTokenAndKeywords'], 10, 1);
 		add_filter('wpcf7_form_elements', 'do_shortcode');
 		add_filter('wpcf7_form_elements', [$this, 'addHoneyPotField']);
 	}
 
+
 	/**
 	 * Loads illegal words from a file.
 	 *
 	 * @return void
 	 */
-	private function loadIllegalWords(): void
+	public function loadIllegalWords(): void
 	{
-		$pathToIllegalFile = plugin_dir_path(__FILE__) . '../lib/illegal.txt';
+		$pathToIllegalFile = plugin_dir_path(__FILE__) . '../lib/blacklist.json';
 		if (!file_exists($pathToIllegalFile)) {
-			error_log("Nielegalne słowa nie zostały załadowane.");
+			error_log("Blacklisted words file not found.");
 			return;
 		}
-		$this->illegalWords = array_filter(array_map('trim', explode(',', file_get_contents($pathToIllegalFile))));
+		$jsonContents = file_get_contents($pathToIllegalFile);
+		$data = json_decode($jsonContents, true);
+
+		if (json_last_error() === JSON_ERROR_NONE && isset($data['blacklistedWords'])) {
+			$this->illegalWords = $data['blacklistedWords'];
+		}
 	}
+
 
 	/**
 	 * Creates a database table for storing tokens if it does not exist.
@@ -133,9 +141,19 @@ class SpamGuard
 	{
 		$file_url = $this->file_path_to_url(dirname((__FILE__), 2));
 		// if (is_page('kontakt', '/')) {
-		wp_enqueue_script('field-randomizer', $file_url . '/assets/js/field-randomizer.js', array(), '1.0.0', true);
-		wp_enqueue_script('token-generator', $file_url . '/assets/js/token-generator.js', array(), '1.0.0', true);
+		wp_enqueue_script('token-generator', $file_url . '/assets/js/token-generator.min.js', array(), '1.0.0', true);
 		// }
+	}
+
+	/**
+	 * Enqueues styles.
+	 *
+	 * @return void
+	 */
+	public function enqueueStyles()
+	{
+		$file_url = $this->file_path_to_url(dirname((__FILE__), 2));
+		wp_enqueue_style('rekuspamshield', $file_url . '/assets/css/rekuspamshield.css', array(), '1.0.0', 'all');
 	}
 
 	/**
