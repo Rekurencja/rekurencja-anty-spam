@@ -1,21 +1,25 @@
 # Oh Honey
 
-## Introduction
+## Opis
+Oh Honey, to narzędzie WordPress zaprojektowane do zapobiegania spamowi z formularzy CF7.
 
-Oh Honey is a WordPress tool designed to prevent spam from CF7 forms.
+## Wymagania
+WordPress 5.0 lub nowszy
+PHP 7.2 lub nowszy
 
-## Requirements
+## Instalacja
+Aby wgrać na nasze strony z formularzami narzędzie anty-spamowe należy:
+Klonujemy repozytorium, wypakowujemy i następnie
+1. Wchodzimy w folder z naszym motywem (theme-folder)
+2. Wybieramy folder w którym trzymamy narzędzia, w moim wypadku:
+```
+wp-content/themes/{nazwa}/src/lib/packages
+```
+3. Kopiujemy nasz folder do packages, następnie dodajemy w functions.php:
+```
+require_once 'lib/packages/oh-honey/init.php';
+```
 
-- WordPress 5.0 or later
-- PHP 7.2 or later
+## I jazdunia, boty do pieca.
 
-## Installation
 
-To install Oh Honey, follow these steps:
-
-1. Upload the `oh-honey` directory to your theme directory
-2. Depends on your project structure
-
-## Usage
-
-After installation, put inside of lib -> packages and fill free to use.
