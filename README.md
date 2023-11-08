@@ -1,7 +1,7 @@
-# Oh Honey
+# cf7-anti-spam-tool
 
 ## Opis
-Oh Honey, to narzędzie WordPress zaprojektowane do zapobiegania spamowi z formularzy CF7.
+ to narzędzie WordPress zaprojektowane do zapobiegania spamowi z formularzy CF7.
 
 ## Wymagania
 WordPress 5.0 lub nowszy
