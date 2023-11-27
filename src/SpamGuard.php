@@ -6,7 +6,7 @@
  * and keyword filtering to deter spam.
  *
  * @package Rekurencja
- * @version 1.0.0
+ * @version 1.0.1
  * @author KRN
  * @link https://github.com/korneliuszburian
  * @see https://rekurencja.com
@@ -15,6 +15,7 @@
 namespace Rekurencja;
 
 use DateTime;
+use Exception;
 
 class SpamGuard
 {
@@ -48,8 +49,12 @@ class SpamGuard
 		$this->wpdb = $wpdb;
 		$this->initializeActionsAndFilters();
 		$this->loadIllegalWords();
-	}
 
+		if (is_admin()) {
+			$this->initializeAdminPanel();
+			add_action('admin_post_update_blacklist', [$this, 'handlePostRequest']);
+		}
+	}
 
 	/**
 	 * Initializes WordPress actions and filters to integrate with Contact Form 7.
@@ -69,8 +74,136 @@ class SpamGuard
 		add_filter('wpcf7_spam', [$this, 'validateTokenAndKeywords'], 10, 1);
 		add_filter('wpcf7_form_elements', 'do_shortcode');
 		add_filter('wpcf7_form_elements', [$this, 'addHoneyPotField']);
+		add_action('admin_enqueue_scripts', [$this, 'load_admin_style']);
 	}
 
+	/**
+	 * Initialize the admin panel hooks and settings.
+	 */
+	public function initializeAdminPanel(): void
+	{
+		add_action('admin_menu', [$this, 'addAdminMenu']);
+		add_action('admin_init', [$this, 'registerSettings']);
+	}
+
+	/**
+	 * Add options page to the admin menu.
+	 */
+	public function addAdminMenu(): void
+	{
+		add_options_page('SpamGuard Settings', 'SpamGuard', 'manage_options', 'spamguard', [$this, 'adminOptionsPage']);
+	}
+
+	/**
+	 * Register settings for the admin panel.
+	 */
+	public function registerSettings(): void
+	{
+		register_setting('spamguard', 'spamguard_settings');
+		add_settings_section('spamguard_section', 'Blacklist Settings', null, 'spamguard');
+		add_settings_field('spamguard_blacklist', 'Blacklisted Words', [$this, 'blacklistWordsField'], 'spamguard', 'spamguard_section');
+	}
+
+	/**
+	 * HTML for the blacklist words field.
+	 */
+	public function blacklistWordsField(): void
+	{
+		$options = get_option('spamguard_settings');
+		echo '<textarea name="spamguard_settings[blacklist]" rows="10" cols="50">' . esc_textarea($options['blacklist'] ?? '') . '</textarea>';
+	}
+
+
+	/**
+	 * Handles POST requests from the admin panel.
+	 * 
+	 * @return void
+	 */
+	public function handlePostRequest(): void
+	{
+		// Check if the form is submitted for updating the blacklist
+		if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['new_blacklisted_words'])) {
+			$newWords = sanitize_text_field($_POST['new_blacklisted_words']);
+			if (!empty($newWords)) {
+				$newWordsArray = array_map('trim', explode(',', $newWords));
+				$updatedWords = array_unique(array_merge($this->illegalWords, $newWordsArray));
+				$this->updateBlacklistFile(implode(',', $updatedWords));
+			}
+		}
+
+		// Check if the form is submitted for deleting a word from the blacklist
+		if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['delete_word'])) {
+			$wordToDelete = sanitize_text_field($_POST['delete_word']);
+			$this->illegalWords = array_filter($this->illegalWords, function ($word) use ($wordToDelete) {
+				return $word !== $wordToDelete;
+			});
+			$this->updateBlacklistFile(implode(',', $this->illegalWords));
+		}
+
+		// Redirect back to the admin page
+		$redirect_url = admin_url('options-general.php?page=spamguard');
+		wp_redirect($redirect_url);
+		exit;
+	}
+
+
+	private function updateBlacklistFile(string $blacklistedWords): void
+	{
+		$pathToIllegalFile = plugin_dir_path(__FILE__) . '../lib/blacklist.json';
+		$wordsArray = array_map('trim', explode(',', $blacklistedWords)); // Split into array
+		$data = json_encode(['blacklistedWords' => $wordsArray]);
+
+		if (file_put_contents($pathToIllegalFile, $data) === false) {
+			$this->logEvent("Failed to update blacklisted words.");
+		} else {
+			$this->loadIllegalWords();
+		}
+	}
+
+	/**
+	 * Loads the illegal words list from the file.
+	 * 
+	 */
+	public function loadIllegalWordsList(): void
+	{
+		$illegalWords = get_option('spamguard_settings');
+		$illegalWords = $this->illegalWords;
+
+		if (empty($illegalWords)) {
+			$this->logEvent("Blacklisted words list is empty.");
+			return;
+		}
+
+		$this->illegalWords = $illegalWords;
+	}
+
+	/**
+	 * Render the options page.
+	 */
+	public function adminOptionsPage(): void
+	{
+?>
+		<div class="spam__wr">
+			<h1>SpamGuard ustawienia</h1>
+			<form method="post" action="<?php echo admin_url('admin-post.php'); ?>">
+				<input type="hidden" name="action" value="update_blacklist">
+				<h2>Aktualna lista zabronionych słów: </h2>
+				<div class="spam__words" style="margin-bottom: 20px;">
+					<?php
+					foreach ($this->illegalWords as $word) {
+						echo '<div class="spam__word">';
+						echo '<input type="text" value="' . esc_attr($word) . '" disabled>';
+						echo '<button type="submit" name="delete_word" value="' . esc_attr($word) . '">Delete <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24"><path d="M24 20.188l-8.315-8.209 8.2-8.282-3.697-3.697-8.212 8.318-8.31-8.203-3.666 3.666 8.321 8.24-8.206 8.313 3.666 3.666 8.237-8.318 8.285 8.203z"/></svg></button>';
+						echo '</div>';
+					} ?>
+				</div>
+				<label for="new_blacklisted_words">Dodaj nowe słowa do czarnej listy (oddzielone przecinkami): </label><br>
+				<textarea id="new_blacklisted_words" name="new_blacklisted_words" rows="4" cols="50"></textarea><br><br>
+				<input type="submit" value="Update Blacklist" class="button button-primary">
+			</form>
+		</div>
+<?php
+	}
 
 	/**
 	 * Loads illegal words from a file.
@@ -81,17 +214,62 @@ class SpamGuard
 	{
 		$pathToIllegalFile = plugin_dir_path(__FILE__) . '../lib/blacklist.json';
 		if (!file_exists($pathToIllegalFile)) {
-			error_log("Blacklisted words file not found.");
+			$this->logEvent("Blacklisted words file not found.");
 			return;
 		}
+
 		$jsonContents = file_get_contents($pathToIllegalFile);
 		$data = json_decode($jsonContents, true);
 
 		if (json_last_error() === JSON_ERROR_NONE && isset($data['blacklistedWords'])) {
 			$this->illegalWords = $data['blacklistedWords'];
+		} else {
+			$this->logEvent("Failed to load blacklisted words.");
 		}
 	}
 
+	/**
+	 * Log events to a custom file for better traceability.
+	 *
+	 * @param string $message The log message.
+	 * @param string $level The log level (info, warning, error).
+	 */
+	private function logEvent($message, $level = 'info')
+	{
+		$logDirectory = plugin_dir_path(__FILE__);
+		$logFile = $logDirectory . 'SpamGuard.log';
+
+		// Check if the directory exists, if not try to create it
+		if (!is_dir($logDirectory)) {
+			mkdir($logDirectory, 0755, true);
+			$this->logEvent('Log directory not found. Attempting to create it.', 'warning');
+		}
+
+		// Check if the log file exists, and create it if it doesn't
+		if (!file_exists($logFile)) {
+			$fileHandle = fopen($logFile, 'w'); // Create file
+			$this->logEvent('Log file not found. Attempting to create it.', 'warning');
+			fclose($fileHandle);
+		}
+
+		// Format the log entry
+		$logEntry = "[" . date('Y-m-d H:i:s') . "] [$level] - $message" . PHP_EOL;
+
+		// Write the log entry to the file
+		file_put_contents($logFile, $logEntry, FILE_APPEND);
+
+		$this->logEventToAdminPanel($message, $level);
+	}
+
+	/**
+	 * Log events to the admin panel.
+	 *
+	 * @param string $message The log message.
+	 * @param string $level The log level (info, warning, error).
+	 */
+	private function logEventToAdminPanel($message, $level = 'info')
+	{
+	}
 
 	/**
 	 * Creates a database table for storing tokens if it does not exist.
@@ -114,7 +292,12 @@ class SpamGuard
 		require_once ABSPATH . 'wp-admin/includes/upgrade.php';
 		dbDelta($sql);
 
-		return empty($this->wpdb->last_error);
+		if ($this->wpdb->last_error) {
+			$this->logEvent('Database table creation failed: ' . $this->wpdb->last_error, 'error');
+			return false;
+		}
+
+		return true;
 	}
 
 	/**
@@ -140,9 +323,17 @@ class SpamGuard
 	public function enqueueScripts()
 	{
 		$file_url = $this->file_path_to_url(dirname((__FILE__), 2));
-		// if (is_page('kontakt', '/')) {
 		wp_enqueue_script('token-generator', $file_url . '/assets/js/token-generator.min.js', array(), '1.0.0', true);
-		// }
+
+		wp_localize_script('token-generator', 'rekurencja_vars', array(
+			'ajax_url' => admin_url('admin-ajax.php')
+		));
+	}
+
+	public function load_admin_style()
+	{
+		$file_url = $this->file_path_to_url(dirname((__FILE__), 2));
+		wp_enqueue_style('admin_css', $file_url . '/assets/css/style-admin.css', false, '1.0.0');
 	}
 
 	/**
@@ -154,6 +345,7 @@ class SpamGuard
 	{
 		$file_url = $this->file_path_to_url(dirname((__FILE__), 2));
 		wp_enqueue_style('rekuspamshield', $file_url . '/assets/css/rekuspamshield.css', array(), '1.0.0', 'all');
+		wp_enqueue_style('style-admin', $file_url . '/assets/css/style-admin.css', array(), '1.0.0', 'all');
 	}
 
 	/**
@@ -169,16 +361,16 @@ class SpamGuard
 		$html .= '
 
         <div class="confirm_label">
-            <label>Potwierdź numer telefonu</label>
-            <input type="text" name="confirm-phone" class="confirm_field">
+            <label for="confirm-phone">>Potwierdź numer telefonu</label>
+            <input type="email" id="confirm-phone" name="confirm-phone" class="confirm_field" autofill="false" autocomplete="false">
 
-            <label>Potwierdź adres e-mail</label>
-            <input type="email" name="confirm-email" class="confirm_field">
+            <label for="confirm-email">Potwierdź adres e-mail</label>
+            <input type="email" id="confirm-email" name="confirm-email" class="confirm_field" autofill="false" autocomplete="false">
         </div>
         <span class="confirm_label">Potwierdź, że nie jesteś robotem</span>
         <div class="confirm_label">
-            <input type="checkbox" name="confirm-robot" class="confirm_field">
-            <label class="confirm_label">Nie jestem robotem</label>
+			<label for="confirm-robot" class="confirm_label"> Nie jestem robotem </label>
+            <input type="checkbox" id="confirm-robot" name="confirm-robot" class="confirm_field" autofill="false" autocomplete="false">
         </div>
         ';
 
@@ -203,7 +395,6 @@ class SpamGuard
 		return $capitalizedCount;
 	}
 
-
 	/**
 	 * Generates a unique token and stores it in the database.
 	 *
@@ -211,24 +402,31 @@ class SpamGuard
 	 */
 	public function generateToken(): ?string
 	{
-		if (!function_exists('random_bytes') || !function_exists('openssl_encrypt') || !defined('AUTH_KEY')) {
+		try {
+			if (!function_exists('random_bytes') || !function_exists('openssl_encrypt') || !defined('AUTH_KEY')) {
+				throw new Exception("Function missing for token generation", 1);
+			}
+
+			$token = bin2hex(random_bytes(32));
+			$salt = random_bytes(8);
+			$saltHex = bin2hex($salt);
+			$encryptedToken = openssl_encrypt($token, 'aes-256-cbc', AUTH_KEY, 0, $saltHex);
+
+			$success = $this->wpdb->insert($this->wpdb->prefix . self::TABLE_NAME, [
+				'token' => $encryptedToken,
+				'salt' => $saltHex,
+				'timestamp' => current_time('mysql'),
+			]);
+
+			if (!$success) {
+				throw new Exception("Failed to insert token into database", 2);
+			}
+
+			return $encryptedToken;
+		} catch (Exception $e) {
+			$this->logEvent("Token generation error: " . $e->getMessage() . " (Code " . $e->getCode() . ")", 'error');
 			return null;
 		}
-
-		$token = bin2hex(random_bytes(32));
-		$salt = random_bytes(8);
-		$saltHex = bin2hex($salt);
-		$encryptedToken = openssl_encrypt($token, 'aes-256-cbc', AUTH_KEY, 0, $saltHex);
-
-		$success = $this->wpdb->insert($this->wpdb->prefix . self::TABLE_NAME, [
-			'token' => $encryptedToken,
-			'salt' => $saltHex,
-			'timestamp' => current_time('mysql'),
-		]);
-
-		// error_log("Original token generated: $token, Encrypted token: $encryptedToken");
-
-		return $success ? $encryptedToken : null;
 	}
 
 	/**
@@ -238,7 +436,7 @@ class SpamGuard
 	 */
 	public function cleanupOldTokens(): void
 	{
-		$expiration = (new DateTime())->modify('-24 hours')->format('Y-m-d H:i:s');
+		$expiration = (new DateTime())->modify('-10 hours')->format('Y-m-d H:i:s');
 		$this->wpdb->query($this->wpdb->prepare("DELETE FROM `{$this->wpdb->prefix}" . self::TABLE_NAME . "` WHERE timestamp < %s", $expiration));
 	}
 
@@ -252,7 +450,10 @@ class SpamGuard
 	{
 		$token = $this->generateToken();
 		if (!$token) {
+			$this->logEvent("Token generation failed. Form may be vulnerable to spam.", 'warning');
 			return $hiddenFields;
+		} else {
+			$this->logEvent("Token $token generated.");
 		}
 
 		$this->startSession();
@@ -274,45 +475,79 @@ class SpamGuard
 	{
 		$token = $_POST['form_token'] ?? null;
 		$user_agent = $_POST['user_agent'] ?? null;
-		$your_message = $_POST['your-message'] ?? null;
+		$your_message = $_POST['your-message'] ?? '';
+		$user_email = $_POST['your-email'] ?? $_POST['email'];
+		$userIp = $_SERVER['REMOTE_ADDR'];
 
 		$this->startSession();
 
-		if (!isset($token)) {
-			return true;
-		}
-
 		if (!$this->isTokenValid($token)) {
+			$this->logEvent('Invalid token received. Potential spam detected.', 'error');
+			$_POST['spam_protection_status'] = 'reduced';
+			return $spam;
+		}
+
+		if ($this->isSpamDetected($token, $user_agent, $your_message)) {
+			$this->logEvent("Spam detected from IP: $userIp. User Email: $user_email.", 'warning');
 			return true;
 		}
 
-		if (isset($_POST['user_agent']) && $_POST['user_agent'] !== $_SERVER['HTTP_USER_AGENT']) {
+		return $spam;
+	}
+
+
+	/**
+	 * Checks if spam is detected based on various conditions.
+	 *
+	 * @param string|null $token
+	 * @param string|null $user_agent
+	 * @param string|null $message
+	 * @return boolean
+	 */
+	private function isSpamDetected(?string $token, ?string $user_agent, ?string $message): bool
+	{
+		// Check token
+		if (!isset($token)) {
+			$this->logEvent('Token nie jest ustawiony. Formularz może być podatny na spam.', 'warning');
 			return true;
 		}
 
-		$message = strtolower($_POST['your-message']);
+		// Check user agent
+		if (!isset($user_agent) || $user_agent !== $_SERVER['HTTP_USER_AGENT']) {
+			return true;
+		}
 
-		if ($this->countCapitalizedWords($_POST['your-message']) > 3) {
-			error_log("Wykryto spam: Więcej niż 3 słowa capslockiem.");
+		// Check message content
+		if (!isset($message)) {
+			$this->logEvent('Wiadomość nie została wpisana.', 'warning');
+			return true;
+		}
+
+		// Check for capitalized words, honeypot fields, and illegal words...
+		$message = strtolower($message);
+
+		if ($this->countCapitalizedWords($message) > 3) {
+			$this->logEvent('Wiadomość zawiera zbyt dużo słów zaczynających się z wielkiej litery. Potencjalny spam wykryty.', 'warning');
 			return true;
 		}
 
 		foreach ($this->illegalWords as $illegal) {
 			if (strpos($message, $illegal) !== false) {
-				error_log("Wykryto spam: Nielegalne słowo: $illegal");
+				$this->logEvent("Wiadomość zawiera niedozwolone słowo: $illegal. Potencjalny spam wykryty.", 'warning');
 				return true;
 			}
 		}
 
 		if (isset($_POST['confirm-phone']) && !empty($_POST['confirm-phone'])) {
-			error_log("Spam wykryty! Honeypot: confirm-phone");
+			$this->logEvent("Pole pułapka" . $_POST['confirm-phone'] . " zostało wypełnione. Potencjalny spam wykryty.", 'warning');
 			return true;
 		} else if (isset($_POST['confirm-email']) && !empty($_POST['confirm-email'])) {
-			error_log("Spam wykryty! Honeypot: confirm-email");
+			$this->logEvent("Pole pułapka" . $_POST['confirm-email'] . " zostało wypełnione. Potencjalny spam wykryty.", 'warning');
 			return true;
 		}
 
-		return $spam;
+
+		return false;
 	}
 
 	/**
@@ -321,12 +556,21 @@ class SpamGuard
 	 * @param object $contactForm
 	 * @return void
 	 */
-	public function invalidateTokenBeforeSendMail($contactForm): void
+	public function invalidateTokenBeforeSendMail(object $contactForm): void
 	{
-		if (isset($_POST['form_token'])) {
-			$token = $_POST['form_token'];
-			$this->deleteToken($token);
+		$token = $_POST['form_token'] ?? null;
+		$originalToken = $_SESSION['original_token'] ?? null;
+
+		if (!$token || !$originalToken) {
+			return;
 		}
+
+		if ($token !== $originalToken) {
+			$this->logEvent('Otrzymano niewazny token. Wykryto potencjalny spam.', 'error');
+			return;
+		}
+
+		$this->deleteToken($token);
 	}
 
 	/**
@@ -337,7 +581,7 @@ class SpamGuard
 	 */
 	public function deleteToken(string $token): void
 	{
-		error_log("Usuwanie tokenu: $token");
+		$this->logEvent("Usuwanie tokenu: $token");
 		$this->wpdb->delete("{$this->wpdb->prefix}" . self::TABLE_NAME, array('token' => $token));
 	}
 
@@ -352,7 +596,7 @@ class SpamGuard
 		$result = $this->wpdb->get_row($this->wpdb->prepare("SELECT * FROM `{$this->wpdb->prefix}" . self::TABLE_NAME . "` WHERE token = %s", $token));
 
 		if (!$result) {
-			error_log("Token $token nie istnieje w bazie danych.");
+			$this->logEvent("Token $token nie istnieje w bazie danych.");
 			return false;
 		}
 
@@ -365,7 +609,6 @@ class SpamGuard
 			session_start();
 		}
 	}
-
 
 	/**
 	 * Regenerates a token and returns it as a JSON response.
