@@ -1,7 +1,7 @@
 <?php
 
 /**
- * Tool name: anti-spam
+ * Tool name: Spamguard
  */
 
 require_once __DIR__ . '/src/SpamGuard.php';

@@ -6,7 +6,7 @@
  * and keyword filtering to deter spam.
  *
  * @package Rekurencja
- * @version 1.0.1
+ * @version 1.0.2
  * @author KRN
  * @link https://github.com/korneliuszburian
  * @see https://rekurencja.com

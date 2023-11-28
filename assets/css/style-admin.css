@@ -1,0 +1,12 @@
+.spam__words{
+    display: flex;
+    flex-direction: row;
+    flex-wrap: wrap;
+}
+
+.spam__word{
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+}
